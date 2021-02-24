@@ -117,17 +117,19 @@ namespace System.ServiceModel.Channels.Http
 				return false;
 			lock (ce.RetrieverLock) {
 				var q = ce.ContextQueue;
-				if (q.Count == 0) {
-					if (timeout.TotalMilliseconds < 0) return false;
-					TimeSpan waitTimeout = timeout;
-					if (timeout == TimeSpan.MaxValue)
-						waitTimeout = TimeSpan.FromMilliseconds (int.MaxValue);
-					bool ret = ce.WaitHandle.WaitOne (waitTimeout);
-					ce.WaitHandle.Reset ();
-					return ret && TryDequeueRequest (channel, waitTimeout - (DateTime.UtcNow - start), out context); // recurse, am lazy :/
-				}
-				q.TryDequeue (out context);
-				return true;
+				if (q.TryDequeue (out context))
+					return true;
+
+				// Calculate wait timeout (include time waiting to acquire the RetrieverLock) 
+				TimeSpan waitTimeout = timeout;
+				if (timeout == TimeSpan.MaxValue)
+					waitTimeout = TimeSpan.FromMilliseconds (int.MaxValue);
+				waitTimeout -= (DateTime.UtcNow - start);
+				if (waitTimeout.TotalMilliseconds <= 0) return false;
+
+				bool ret = ce.WaitHandle.WaitOne (waitTimeout);
+				ce.WaitHandle.Reset ();
+				return ret && q.TryDequeue (out context);
 			}
 		}
 	}
